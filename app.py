@@ -8,14 +8,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-# --- Page Setup ---
 st.set_page_config(page_title="Air Quality Predictor", page_icon="🌡️", layout="wide")
 
 device = torch.device("cpu")
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 weight_path = os.path.join(APP_DIR, "assets", "weights")
 
-# --- Model Architectures ---
+# --- Architectures ---
 class LinearRegressionModel(nn.Module):
     def __init__(self, input_dim, output_dim=1):
         super(LinearRegressionModel, self).__init__()
@@ -36,15 +35,13 @@ class AirQualityMLP(nn.Module):
         x = F.relu(self.layer2(x))
         return self.outputlayer(x)
 
-# --- Caching Weights (Crucial for Streamlit Speed) ---
+# --- Model & Scaler Loading ---
 @st.cache_resource
 def load_models():
-    # Load Scalers
     scaler_raw = joblib.load(os.path.join(weight_path, "scaler_raw.joblib"))
     scaler_poly = joblib.load(os.path.join(weight_path, "scaler_poly.joblib"))
     poly = joblib.load(os.path.join(weight_path, "poly.joblib"))
 
-    # Load Models
     gradientboost_model = joblib.load(os.path.join(weight_path, "gradientboostweights.joblib"))
     
     linear_model = torch.load(
@@ -63,10 +60,9 @@ def load_models():
     
     return scaler_raw, scaler_poly, poly, gradientboost_model, linear_model, deepml_model
 
-# Initialize the cached models
 scaler_raw, scaler_poly, poly, gb_model, lr_model, mlp_model = load_models()
 
-# --- UI Layout ---
+# --- Streamlit UI ---
 st.title("🌡️ Air Quality Multi-Model Temperature Benchmark")
 st.write("Enter sensor readings below to run predictions through all 3 algorithms simultaneously.")
 
@@ -97,7 +93,7 @@ with col2:
         ]])
         results = []
 
-        # --- 1. HistGradientBoosting ---
+        # 1. HistGradientBoosting
         t0 = time.perf_counter()
         pred_gb = gb_model.predict(raw_features)[0]
         lat_gb = (time.perf_counter() - t0) * 1000
@@ -107,12 +103,11 @@ with col2:
             "Latency (ms)": f"{lat_gb:.3f}"
         })
 
-        # --- 2. PyTorch Linear Regression ---
+        # 2. PyTorch Linear Regression
         t0 = time.perf_counter()
         poly_features = poly.transform(raw_features)
         scaled_poly_features = scaler_poly.transform(poly_features)
         tensor_poly = torch.tensor(scaled_poly_features, dtype=torch.float32)
-        
         with torch.no_grad():
             pred_lr = lr_model(tensor_poly).item()
         lat_lr = (time.perf_counter() - t0) * 1000
@@ -122,11 +117,10 @@ with col2:
             "Latency (ms)": f"{lat_lr:.3f}"
         })
 
-        # --- 3. PyTorch DeepML MLP ---
+        # 3. PyTorch DeepML MLP
         t0 = time.perf_counter()
         scaled_raw_features = scaler_raw.transform(raw_features)
         tensor_scaled = torch.tensor(scaled_raw_features, dtype=torch.float32)
-        
         with torch.no_grad():
             pred_mlp = mlp_model(tensor_scaled).item()
         lat_mlp = (time.perf_counter() - t0) * 1000
@@ -136,6 +130,5 @@ with col2:
             "Latency (ms)": f"{lat_mlp:.3f}"
         })
 
-        # Display Results
         df_results = pd.DataFrame(results)
         st.dataframe(df_results, use_container_width=True, hide_index=True)
